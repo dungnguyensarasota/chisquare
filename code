@@ -1,0 +1,106 @@
+import pandas as pd
+import re
+import random
+jeopardy = pd.read_csv("jeopardy.csv")
+jeopardy.columns=jeopardy.columns.str.replace(" ","")
+def normalize_text(text):
+    text = text.lower()
+    text = re.sub("[^A-Za-z0-9\s]", "", text)
+    text = re.sub("\s+", " ", text)
+    return text
+
+def normalize_value(text):
+    text = re.sub("[^A-Za-z0-9\s]", "", text)
+    try:
+        text = int(text)
+    except Exception:
+        text = 0
+    return text
+def match_qa(row):
+    split_answer = row["clean_answer"].split(" ")
+    split_question = row["clean_question"].split(" ")
+#     print(type(split_answer))
+    if "the" in split_answer:
+        split_answer = split_answer.remove("the")
+    mc = 0;
+    if split_answer is None:
+        mc = 0
+    elif len(split_answer) > 0:
+        m = 0
+        for w in split_answer:
+            if w in split_question:
+                m += 1
+        mc = m/len(split_answer)
+    return mc 
+
+def value_q(row):
+    if row["clean_value"] is None:
+        s = 0
+    elif row["clean_value"] > 800:
+        s = 1
+    else:
+        s = 0
+    return s
+
+def high_low_count(w):
+    low_count = 0
+    high_count = 0
+    for index, row in jeopardy.iterrows():
+        split_question = row["clean_question"].split(" ")
+        if w in split_question:
+            if row["high_value"] == 1:
+                high_count +=1
+            else:
+                low_count += 1
+    return high_count,low_count
+
+    
+jeopardy["clean_question"] = jeopardy["Question"].apply(normalize_text)
+    
+jeopardy["clean_answer"] = jeopardy["Answer"].apply(normalize_text)
+jeopardy["clean_value"] = jeopardy["Value"].apply(normalize_value)
+jeopardy["AirDate"] = pd.to_datetime(jeopardy["AirDate"], infer_datetime_format=True)    
+jeopardy["answer_in_question"] = jeopardy.apply(match_qa,axis = 1)
+print(jeopardy["answer_in_question"].mean())
+question_overlap = []
+term_used = set()
+jeopardy = jeopardy.sort_values(by="AirDate")
+# print(jeopardy.head(100))
+for index, row in jeopardy.iterrows():
+    split_question = row["clean_question"].split(" ")
+    split_question = [s for s in split_question if len(s) >=6]
+    match_count = 0
+    if split_question is None:
+        match_count = 0
+    elif len(split_question) > 0:
+        for w in split_question:
+            if w in term_used:
+                match_count += 1
+            term_used.add(w)
+        match_count = match_count/len(split_question)
+    question_overlap.append(match_count)
+jeopardy["question_overlap"] = pd.Series(question_overlap)
+print(jeopardy["question_overlap"].mean())
+jeopardy["high_value"] = jeopardy.apply(value_q,axis = 1)
+comparison_terms = random.sample(term_used, 10)
+observed_expected = []
+for w in comparison_terms:
+    observed_expected.append(high_low_count(w))
+print(observed_expected)    
+high_value_count = jeopardy[jeopardy["high_value"]==1].shape[0]
+low_value_count = jeopardy[jeopardy["high_value"]==0].shape[0]
+num_row = jeopardy.shape[0]
+print(high_value_count,low_value_count)
+chi_squared = []
+from scipy.stats import chisquare
+import numpy as np
+for v in observed_expected:
+    total = sum(v)
+    total_prop = total/num_row
+    observed = np.array([v[0], v[1]])
+    expected = np.array([total_prop*high_value_count,total_prop*low_value_count])
+    x=chisquare(observed, expected)
+    chi_squared.append(x)
+print(chi_squared)
+    
+    
